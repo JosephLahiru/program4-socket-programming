@@ -1,143 +1,109 @@
 #include <iostream>
-#include <cstring>
-#include <sys/types.h>
+#include <string>
 #include <sys/socket.h>
-#include <netdb.h>
+#include <netinet/in.h>
 #include <unistd.h>
+#include <arpa/inet.h>
+#include <cstring>
 #include <pthread.h>
 
-#define MAX_BUFFER_SIZE 1500
+const int BUFSIZE = 1500;
 
-struct ThreadArgs {
-    int clientSd;
+struct ThreadData
+{
+    int client_sock;
 };
 
-void* serviceRequest(void* args) {
-    struct ThreadArgs* threadArgs = (struct ThreadArgs*) args;
-    int clientSd = threadArgs->clientSd;
-    delete threadArgs;  // Clean up the argument struct
+void *service_request(void *arg)
+{
+    ThreadData *data = static_cast<ThreadData *>(arg);
+    int client_sock = data->client_sock;
+    delete data;
 
-    char dataBuf[MAX_BUFFER_SIZE];
-
-    // Step 2: Receive the number of iterations from the client
+    char dataBuf[BUFSIZE];
     int iterations;
-    if (recv(clientSd, &iterations, sizeof(iterations), 0) == -1) {
-        std::cerr << "recv error" << std::endl;
-        close(clientSd);
-        pthread_exit(nullptr);
-    }
+    int bytesRead;
 
-    // Step 3: Read the appropriate number of iterations of data from the client
-    int numReads = 0;
-    for (int i = 0; i < iterations; ++i) {
-        int bytesRead = 0;
-        int totalBytesRead = 0;
+    recv(client_sock, &iterations, sizeof(int), 0);
 
-        while (totalBytesRead < MAX_BUFFER_SIZE) {
-            bytesRead = read(clientSd, dataBuf + totalBytesRead, MAX_BUFFER_SIZE - totalBytesRead);
-            if (bytesRead == -1) {
-                std::cerr << "read error" << std::endl;
-                close(clientSd);
+    int totalReadCalls = 0;
+    for (int i = 0; i < iterations; ++i)
+    {
+        bytesRead = 0;
+        while (bytesRead < BUFSIZE)
+        {
+            int result = read(client_sock, dataBuf + bytesRead, BUFSIZE - bytesRead);
+            if (result <= 0)
+            {
+                close(client_sock);
                 pthread_exit(nullptr);
-            } else if (bytesRead == 0) {
-                break;
             }
-            totalBytesRead += bytesRead;
+            bytesRead += result;
+            totalReadCalls++;
         }
-
-        numReads++;
     }
 
-    // Step 4: Send the number of read() system calls to the client
-    if (send(clientSd, &numReads, sizeof(numReads), 0) == -1) {
-        std::cerr << "send error" << std::endl;
-        close(clientSd);
-        pthread_exit(nullptr);
-    }
-
-    // Step 5: Close the connection
-    close(clientSd);
-
-    // Step 6: Terminate the thread
+    send(client_sock, &totalReadCalls, sizeof(int), 0);
+    close(client_sock);
     pthread_exit(nullptr);
 }
 
-int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " port" << std::endl;
+int main(int argc, char *argv[])
+{
+    if (argc != 2)
+    {
+        std::cerr << "Usage: " << argv[0] << " <port>" << std::endl;
         return 1;
     }
 
-    const char* port = argv[1];
+    int port = std::stoi(argv[1]);
 
-    // Step 1: Create a socket and bind it to the given port
-    struct addrinfo hints, *res;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;
-
-    int status = getaddrinfo(nullptr, port, &hints, &res);
-    if (status != 0) {
-        std::cerr << "getaddrinfo error: " << gai_strerror(status) << std::endl;
-        return 1;
-    }
-
-    int serverSd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (serverSd == -1) {
-        std::cerr << "socket error" << std::endl;
+    int server_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_sock < 0)
+    {
+        std::cerr << "Error creating socket" << std::endl;
         return 1;
     }
 
     const int on = 1;
-    setsockopt(serverSd, SOL_SOCKET, SO_REUSEADDR, (char*)&on, sizeof(int));
+    setsockopt(server_sock, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof(int));
 
-    if (bind(serverSd, res->ai_addr, res->ai_addrlen) == -1) {
-        std::cerr << "bind error" << std::endl;
-        close(serverSd);
+    sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(server_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        std::cerr << "Error binding socket" << std::endl;
         return 1;
     }
 
-    freeaddrinfo(res);
-
-    // Step 2: Listen for incoming connections
-    if (listen(serverSd, 5) == -1) {
-        std::cerr << "listen error" << std::endl;
-        close(serverSd);
+    if (listen(server_sock, 5) < 0)
+    {
+        std::cerr << "Error listening on socket" << std::endl;
         return 1;
     }
 
-    std::cout << "Server listening on port " << port << std::endl;
+    while (true)
+    {
+        sockaddr_in client_addr;
+        socklen_t client_addr_len = sizeof(client_addr);
+        int client_sock = accept(server_sock, (sockaddr *)&client_addr, &client_addr_len);
 
-    while (true) {
-        // Step 3: Accept a client connection
-        struct sockaddr_storage clientAddr;
-        socklen_t clientAddrSize = sizeof(clientAddr);
-        int clientSd = accept(serverSd, (struct sockaddr*)&clientAddr, &clientAddrSize);
-        if (clientSd == -1) {
-            std::cerr << "accept error" << std::endl;
-            close(serverSd);
-            return 1;
+        if (client_sock < 0)
+        {
+            std::cerr << "Error accepting client connection" << std::endl;
+            continue;
         }
 
-        // Step 4: Create a thread to service the request
-        pthread_t thread;
-        struct ThreadArgs* threadArgs = new ThreadArgs;
-        threadArgs->clientSd = clientSd;
+        ThreadData *data = new ThreadData;
+        data->client_sock = client_sock;
 
-        if (pthread_create(&thread, nullptr, serviceRequest, (void*)threadArgs) != 0) {
-            std::cerr << "pthread_create error" << std::endl;
-            close(clientSd);
-            close(serverSd);
-            return 1;
-        }
-
-        // Detach the thread to clean up its resources automatically
-        pthread_detach(thread);
+        pthread_t thread_id;
+        pthread_create(&thread_id, nullptr, service_request, data);
+        pthread_detach(thread_id);
     }
-
-    // Step 5: Close the server socket (never reached in this code)
-    close(serverSd);
 
     return 0;
 }
