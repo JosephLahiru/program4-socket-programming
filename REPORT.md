@@ -23,11 +23,12 @@ For each test scenario, three types of operations were performed:
 4. Results and Analysis
    The average throughput for each test scenario and operation type was calculated. The results are presented in the table below:
 
-Test Scenario Type 1 Throughput Type 2 Throughput Type 3 Throughput
-Test 1
-Test 2
-Test 3
-Test 4
+| Test Scenario | Type 1 Throughput | Type 2 Throughput | Type 3 Throughput |
+| :-----------: | :---------------: | :---------------: | :---------------: |
+|    Test 1     |                   |                   |                   |
+|    Test 2     |                   |                   |                   |
+|    Test 3     |                   |                   |                   |
+|    Test 4     |                   |                   |                   |
 
 Based on the results, it can be observed that [insert trends or patterns]. The performance differences between the test types and buffer size combinations can be attributed to [insert reasons].
 
