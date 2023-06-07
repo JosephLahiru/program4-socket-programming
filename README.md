@@ -43,3 +43,22 @@ The application can serve as a benchmarking tool for comparing the performance o
 - Run the client on the other node (e.g., csslab2) with the server's name, port number, and the different test parameters:
   `./client csslab1 <port> <repetition_count> <nbufs> <bufsize> <test_type>`
 - Note down the throughput (in Gbps) for each test, as printed by the client. Analyze the results to determine the most efficient data transfer method for your specific scenario.
+
+## Performance Tests
+
+  - Test 1: nbufs = 15, bufsize = 100
+    - Type 1: ./client <serverName> <port> 20000 15 100 1
+    - Type 2: ./client <serverName> <port> 20000 15 100 2
+    - Type 3: ./client <serverName> <port> 20000 15 100 3
+  - Test 2: nbufs = 30, bufsize = 50
+    - Type 1: ./client <serverName> <port> 20000 30 50 1
+    - Type 2: ./client <serverName> <port> 20000 30 50 2
+    - Type 3: ./client <serverName> <port> 20000 30 50 3
+  - Test 3: nbufs = 60, bufsize = 25
+    - Type 1: ./client <serverName> <port> 20000 60 25 1
+    - Type 2: ./client <serverName> <port> 20000 60 25 2
+    - Type 3: ./client <serverName> <port> 20000 60 25 3
+  - Test 4: nbufs = 100, bufsize = 15
+    - Type 1: ./client <serverName> <port> 20000 100 15 1
+    - Type 2: ./client <serverName> <port> 20000 100 15 2
+    - Type 3: ./client <serverName> <port> 20000 100 15 3
