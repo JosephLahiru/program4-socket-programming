@@ -1,183 +1,104 @@
 #include <iostream>
-#include <cstring>
-#include <sys/types.h>
+#include <string>
 #include <sys/socket.h>
-#include <netdb.h>
+#include <netinet/in.h>
 #include <unistd.h>
+#include <arpa/inet.h>
+#include <cstring>
+#include <sys/uio.h>
+#include <netdb.h>
 #include <chrono>
-#include <vector>
-
-#define MAX_BUFFER_SIZE 1500
-
-void performMultipleWrites(int clientSd, int nbufs, int bufsize)
-{
-    char databuf[nbufs][bufsize];
-    for (int i = 0; i < nbufs; ++i)
-    {
-        // Fill the data buffer with some data
-        // You can modify this part according to your specific requirements
-        memset(databuf[i], 'A' + (i % 26), bufsize);
-    }
-
-    for (int j = 0; j < nbufs; ++j)
-    {
-        if (write(clientSd, databuf[j], bufsize) == -1)
-        {
-            std::cerr << "write error" << std::endl;
-            close(clientSd);
-            exit(1);
-        }
-    }
-}
-
-void performWritev(int clientSd, int nbufs, int bufsize)
-{
-    char databuf[nbufs][bufsize];
-    struct iovec vector[nbufs];
-    for (int i = 0; i < nbufs; ++i)
-    {
-        // Fill the data buffer with some data
-        // You can modify this part according to your specific requirements
-        memset(databuf[i], 'A' + (i % 26), bufsize);
-
-        vector[i].iov_base = databuf[i];
-        vector[i].iov_len = bufsize;
-    }
-
-    if (write(clientSd, vector, nbufs) == -1)
-    {
-        std::cerr << "writev error" << std::endl;
-        close(clientSd);
-        exit(1);
-    }
-}
-
-void performSingleWrite(int clientSd, int nbufs, int bufsize)
-{
-    char databuf[nbufs][bufsize];
-    std::vector<char> combinedBuf(nbufs * bufsize);
-
-    for (int i = 0; i < nbufs; ++i)
-    {
-        // Fill the data buffer with some data
-        // You can modify this part according to your specific requirements
-        memset(databuf[i], 'A' + (i % 26), bufsize);
-        memcpy(combinedBuf.data() + i * bufsize, databuf[i], bufsize);
-    }
-
-    if (write(clientSd, combinedBuf.data(), nbufs * bufsize) == -1)
-    {
-        std::cerr << "write error" << std::endl;
-        close(clientSd);
-        exit(1);
-    }
-}
 
 int main(int argc, char *argv[])
 {
     if (argc != 7)
     {
-        std::cerr << "Usage: " << argv[0] << " serverName port repetition nbufs bufsize type" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <serverName> <port> <repetition> <nbufs> <bufsize> <type>" << std::endl;
         return 1;
     }
 
-    const char *serverName = argv[1];
-    const char *port = argv[2];
+    std::string serverName = argv[1];
+    int port = std::stoi(argv[2]);
     int repetition = std::stoi(argv[3]);
     int nbufs = std::stoi(argv[4]);
     int bufsize = std::stoi(argv[5]);
     int type = std::stoi(argv[6]);
 
-    // Step 1: Establish a connection to the server
-    struct addrinfo hints, *res;
+    addrinfo hints, *res;
     memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
 
-    int status = getaddrinfo(serverName, port, &hints, &res);
-    if (status != 0)
+    if (getaddrinfo(serverName.c_str(), argv[2], &hints, &res) != 0)
     {
-        std::cerr << "getaddrinfo error: " << gai_strerror(status) << std::endl;
+        std::cerr << "Error getting server address" << std::endl;
         return 1;
     }
 
-    int clientSd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (clientSd == -1)
+    int client_sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (client_sock < 0)
     {
-        std::cerr << "socket error" << std::endl;
+        std::cerr << "Error creating socket" << std::endl;
         return 1;
     }
 
-    if (connect(clientSd, res->ai_addr, res->ai_addrlen) == -1)
+    if (connect(client_sock, res->ai_addr, res->ai_addrlen) < 0)
     {
-        std::cerr << "connect error" << std::endl;
-        close(clientSd);
+        std::cerr << "Error connecting to server" << std::endl;
         return 1;
     }
 
     freeaddrinfo(res);
 
-    std::cout << "Connected to the server." << std::endl;
+    char databuf[nbufs][bufsize];
+    memset(databuf, 'a', nbufs * bufsize);
 
-    // Step 2: Send the number of iterations to the server
-    int iterations = repetition * nbufs;
-    if (send(clientSd, &iterations, sizeof(iterations), 0) == -1)
+    send(client_sock, &repetition, sizeof(int), 0);
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (int i = 0; i < repetition; ++i)
     {
-        std::cerr << "send error" << std::endl;
-        close(clientSd);
-        return 1;
+        if (type == 1)
+        {
+            for (int j = 0; j < nbufs; j++)
+            {
+                write(client_sock, databuf[j], bufsize);
+            }
+        }
+        else if (type == 2)
+        {
+            struct iovec vector[nbufs];
+            for (int j = 0; j < nbufs; j++)
+            {
+                vector[j].iov_base = databuf[j];
+                vector[j].iov_len = bufsize;
+            }
+            writev(client_sock, vector, nbufs);
+        }
+        else if (type == 3)
+        {
+            write(client_sock, databuf, nbufs * bufsize);
+        }
+        else
+        {
+            std::cerr << "Invalid test type" << std::endl;
+            return 1;
+        }
     }
 
-    // Step 3: Perform the appropriate number of tests with the server
-    // Measure the time it takes for the tests using chrono library
-    auto startTime = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::micro> elapsed = end - start;
 
-    switch (type)
-    {
-    case 1:
-        for (int i = 0; i < repetition; ++i)
-        {
-            performMultipleWrites(clientSd, nbufs, bufsize);
-        }
-        break;
-    case 2:
-        for (int i = 0; i < repetition; ++i)
-        {
-            performWritev(clientSd, nbufs, bufsize);
-        }
-        break;
-    case 3:
-        for (int i = 0; i < repetition; ++i)
-        {
-            performSingleWrite(clientSd, nbufs, bufsize);
-        }
-        break;
-    default:
-        std::cerr << "Invalid test type" << std::endl;
-        close(clientSd);
-        return 1;
-    }
+    int totalReadCalls;
+    recv(client_sock, &totalReadCalls, sizeof(int), 0);
 
-    auto endTime = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
+    double throughput = ((nbufs * bufsize * repetition * 8) / (1024.0 * 1024.0 * 1024.0)) / (elapsed.count() / 1000000.0);
 
-    // Step 4: Receive the number of read() system calls from the server
-    int numReads;
-    if (recv(clientSd, &numReads, sizeof(numReads), 0) == -1)
-    {
-        std::cerr << "recv error" << std::endl;
-        close(clientSd);
-        return 1;
-    }
+    std::cout << "Test (" << type << "): time = " << elapsed.count() << " usec, "
+              << "#reads = " << totalReadCalls << ", throughput = " << throughput << " Gbps" << std::endl;
 
-    // Step 5: Print information about the test
-    double throughput = (nbufs * bufsize * 8.0 * iterations) / (duration.count() / 1000000.0); // throughput in Gbps
-
-    std::cout << "Test " << type << ": time = " << duration.count() << " usec, #reads = " << numReads
-              << ", throughput " << throughput << " Gbps" << std::endl;
-
-    // Step 6: Close the socket
-    close(clientSd);
+    close(client_sock);
 
     return 0;
 }
